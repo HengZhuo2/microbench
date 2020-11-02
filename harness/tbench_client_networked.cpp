@@ -46,28 +46,21 @@ void* recv(void* c) {
     NetworkedClient* client = reinterpret_cast<NetworkedClient*>(c);
     Response resp;
     //int recvcounter = 0;
-    int dumpROI = (int) (client->lambdaROI / 1e-9);
-    std::cout<<"dumpROI is: "<< dumpROI <<std::endl;
+    // int dumpROI = (int) (client->lambdaROI / 1e-9);
+    // std::cout<<"dumpROI is: "<< dumpROI <<std::endl;
     while (true) {
-      if (!client->recv(&resp)) {
-	std::cout << "client failed, dump stats" << std::endl;
-	  client->dumpStats();
-	  //std::cerr << "[CLIENT] recv() failed : " << client->errmsg() \
-          //      << std::endl;
+        if (!client->recv(&resp)) {
+            std::cout << "client failed, dump stats" << std::endl;
+            client->dumpStats();
             return nullptr;
         }
 
         if (resp.type == RESPONSE) {
-	  //std::cout << "resp.type:RESPONSE with count:"<<recvcounter << std::endl;
             client->finiReq(&resp);
-	    //if ( !( recvcounter %(dumpROI/10))) {
-	      //std::cout<< "resp.type:DUMP with count: "<<recvcounter<<std::endl;
-	    //  client->dumpStats();
-	    //}
-	} else if (resp.type == ROI_BEGIN) {
-        std::cout << "resp.type:ROI_BEGIN"<< std::endl;
-        client->startRoi();
-        //recvcounter=0;
+	    } else if (resp.type == ROI_BEGIN) {
+            std::cout << "resp.type:ROI_BEGIN"<< std::endl;
+            client->startRoi();
+            //recvcounter=0;
         } else if (resp.type == FINISH) {
 	        std::cout << "resp.type:FINISH"<< std::endl;
             client->dumpStats();

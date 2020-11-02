@@ -21,8 +21,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-const int MAX_REQ_BYTES = 1 << 20; // 1 MB
-const int MAX_RESP_BYTES = 1 << 20; // 1 MB
+const int MAX_REQ_BYTES = 1 << 10; // 1 MB
+const int MAX_RESP_BYTES = 1 << 10; // 1 MB
 
 enum ResponseType { RESPONSE, ROI_BEGIN, DUMP, FINISH };
 

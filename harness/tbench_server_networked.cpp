@@ -264,7 +264,7 @@ void NetworkedServer::sendResp(int id, const void* data, size_t len) {
 
     if (finishedReqs == warmupReqs) {
         resp->type = ROI_BEGIN;
-	std::cout << "finished warmup." << std::endl;
+	    std::cout << "finished warmup." << std::endl;
         for (int fd : clientFds) {
             totalLen = sizeof(Response) - MAX_RESP_BYTES;
             sent = sendfull(fd, reinterpret_cast<const char*>(resp), totalLen, 0);
@@ -272,7 +272,7 @@ void NetworkedServer::sendResp(int id, const void* data, size_t len) {
         }
     } else if (finishedReqs == warmupReqs + maxReqs) {
         resp->type = FINISH;
-	std::cout << "finished warmup + ROI." << std::endl;
+	    std::cout << "finished warmup + ROI." << std::endl;
         for (int fd : clientFds) {
             totalLen = sizeof(Response) - MAX_RESP_BYTES;
             sent = sendfull(fd, reinterpret_cast<const char*>(resp), totalLen, 0);

@@ -97,15 +97,17 @@ static int recvfull(int fd, char* msg, int len, int flags) {
     int remaining = len;
     char* cur = msg;
     int recvd;
-
     //std::cout << "here in helpers.h: recvfull" << std::endl;
+    uint64_t curNs1,curNs2;
     while (remaining > 0) {
+        curNs1 = getCurNs();
         recvd = recv(fd, reinterpret_cast<void*>(cur), remaining, flags);
+        curNs2 = getCurNs();
+        printf("recvfull before time: %u\n",curNs2-curNs1);
         if ((recvd == -1) || (recvd == 0)) break;
         cur += recvd;
         remaining -= recvd;
     }
-
     return (len - remaining);
 }
 

@@ -53,7 +53,6 @@ std::default_random_engine random_g(rd());
 void hybridLock(pthread_mutex_t *theLock, int spinLimit, int tid) {
     for (unsigned i = 0; i < spinLimit; ++i){
         if(pthread_mutex_trylock(theLock)==0){
-            // std::cout<<"spin done here with: "<< i<<std::endl;
             // printf("thread[%i],spin[%i]\n", tid, i);
             return;
         }
@@ -98,34 +97,34 @@ class Worker {
                 ++nReqs;
 
                 size_t len = tBenchRecvReq(reinterpret_cast<void**>(&request));
-                // cout<<"recv one req here"<<endl;
+                // // cout<<"recv one req here"<<endl;
                 if(tid==0){
-                    ts_sleep.tv_nsec = 1e+6;
-                    ts_sleep.tv_sec = 0;
-                    nanosleep(&ts_sleep,NULL);
+                    int i;
+                    i=4e+5;
+                    while(--i){
+                        asm("");
+                    }
                     hybridLock(&microLock[0], spinLimit, tid);
-                    t = eDist(random_g);
-                    ts_sleep.tv_nsec = 1e+6;
-                    ts_sleep.tv_sec = 0;
-                    // cout<<len<<endl;
-                    nanosleep(&ts_sleep,NULL);
+                    // t = eDist(random_g);
+                    i=4e+5;
+                    while(--i){
+                        asm("");
+                    }
                     pthread_mutex_unlock(&microLock[0]);
                 } else {
                     // lockIdx = nDist(random_g);
                     lockIdx = tid;
-                    // cout<<request<<endl;
-                    // sleep(eDist(random_g));
                     // nextNs += eDist(random_g);
-                    // lockIdx = nDist(random_g);
-                    ts_sleep.tv_nsec = 1e+6;
-                    ts_sleep.tv_sec = 0;
-                    nanosleep(&ts_sleep,NULL);
+                    int j;
+                    j=1e+6;
+                    while(--j){
+                        asm("");
+                    }
                     hybridLock(&microLock[0], spinLimit, tid);
-                    t = eDist(random_g);
-                    ts_sleep.tv_nsec = 1e+6;
-                    ts_sleep.tv_sec = 0;
-                    // cout<<len<<endl;
-                    nanosleep(&ts_sleep,NULL);
+                    j=1e+6;
+                    while(--j){
+                        asm("");
+                    }
                     pthread_mutex_unlock(&microLock[0]);
                 }
 
@@ -137,7 +136,7 @@ class Worker {
         Worker(int tid)
             : tid(tid) 
             , nReqs(0)
-            , spinLimit(1)
+            , spinLimit(1000000000)
         { }
 
         void run() {
