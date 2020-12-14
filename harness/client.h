@@ -50,6 +50,7 @@ class Client {
         std::vector<uint64_t> svcTimes;
         std::vector<uint64_t> queueTimes;
         std::vector<uint64_t> sjrnTimes;
+        std::vector<uint64_t> spinCnt;
 
         void _startRoi();
 

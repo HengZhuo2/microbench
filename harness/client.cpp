@@ -130,6 +130,7 @@ void Client::finiReq(Response* resp) {
         queueTimes.push_back(qtime);
         svcTimes.push_back(resp->svcNs);
         sjrnTimes.push_back(sjrn);
+        spinCnt.push_back(*reinterpret_cast<const uint64_t*>(resp->data));
     }
 
     delete req;
@@ -156,6 +157,7 @@ void Client::_startRoi() {
     queueTimes.clear();
     svcTimes.clear();
     sjrnTimes.clear();
+    spinCnt.clear();
 }
 
 void Client::startRoi() {
@@ -184,6 +186,8 @@ void Client::dumpStats() {
                     sizeof(svcTimes[r]));
         out.write(reinterpret_cast<const char*>(&sjrnTimes[r]), 
                     sizeof(sjrnTimes[r]));
+        out.write(reinterpret_cast<const char*>(&spinCnt[r]), 
+                    sizeof(spinCnt[r]));
     }
     out.close();
     //clear out everytime dump stats
@@ -194,6 +198,7 @@ void Client::dumpStats() {
     queueTimes.clear();
     svcTimes.clear();
     sjrnTimes.clear();
+    spinCnt.clear();
 }
 
 /*******************************************************************************

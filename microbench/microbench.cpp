@@ -11,6 +11,8 @@
 #include <pthread.h>
 #include <random>
 
+#include <sstream>
+
 using namespace std;
 
 void printHelp(char* argv[]) {
@@ -23,6 +25,29 @@ void printHelp(char* argv[]) {
         << "(default: 6000; size of the full MNIST test dataset)" << endl;
     cerr << "-r : Number of worker threads" << endl;
     cerr << "-h : Print this help and exit" << endl;
+}
+
+template<typename T>
+static T getOpt(const char* name, T defVal) {
+    const char* opt = getenv(name);
+
+    if (!opt){
+        std::cout << name << " = " << defVal << std::endl;
+        return defVal;
+    }
+    else{
+        std::cout << name << " = " << opt << std::endl;
+    }
+    std::stringstream ss(opt);
+    if (ss.str().length() == 0) return defVal;
+    T res;
+    ss >> res;
+    if (ss.fail()) {
+        std::cerr << "WARNING: Option " << name << "(" << opt << ") could not"\
+            << " be parsed, using default" << std::endl;
+        return defVal;
+    }   
+    return res;
 }
 
 static inline uint64_t GetCurrentClockCycle() {
@@ -44,40 +69,41 @@ static inline uint64_t GetCurrentClockCycle() {
 #endif
 }
 
-static uint64_t getCurNs() {
-    struct timespec ts;
-    clock_gettime(CLOCK_REALTIME, &ts);
-    uint64_t t = ts.tv_sec*1000*1000*1000 + ts.tv_nsec;
-
-    return t;
+static inline uint64_t GetFrequency() {
+#if defined(__x86_64__) || defined(__amd64__)
+    // this number is based on the system running now.
+    // maybe a better to get this number from compile environment
+    uint64_t rdt_freq = 4007999999;
+    return rdt_freq;
+#elif defined(__aarch64__)
+  // System timer of ARMv8 runs at a different frequency than the CPU's.
+  // The frequency is fixed, typically in the range 1-50MHz.  It can because
+  // read at CNTFRQ special register.  We assume the OS has set up
+  // the virtual timer properly.
+  uint64_t virtual_timer_freq;
+  asm volatile("mrs %0, cntfrq_el0" : "=r"(virtual_timer_freq));
+  return virtual_timer_freq;
+#else
+  return DUMMY_FREQ;
+#endif
 }
 
-static void sleepUntil(uint64_t targetNs) {
-    uint64_t curNs = getCurNs();
-    while (curNs < targetNs) {
-        uint64_t diffNs = targetNs - curNs;
-        struct timespec ts = {(time_t)(diffNs/(1000*1000*1000)), 
-            (time_t)(diffNs % (1000*1000*1000))};
-        nanosleep(&ts, NULL); //not guaranteed, hence the loop
-        curNs = getCurNs();
-    }
-}
-
-pthread_mutex_t microLock[10];
-std::exponential_distribution<double> eDist( 1 * 1e-9);
-//std::uniform_int_distribution<int> nDist{0,1};
+pthread_mutex_t microLock[20];
+// std::exponential_distribution<double> eDist(1 * 1e-9);
+//std::uniform_int_distribution<int> nDist{0,1}; 
 std::random_device rd;
 std::default_random_engine random_g(rd());
 
-void hybridLock(pthread_mutex_t *theLock, int spinLimit, int tid) {
-    for (unsigned i = 0; i < spinLimit; ++i){
-        if(pthread_mutex_trylock(theLock)==0){
-            // printf("thread[%i],spin[%i]\n", tid, i);
-            return;
-        }
+uint64_t hybridLock(pthread_mutex_t *theLock, uint64_t spinLimit, int tid) {
+  uint64_t i;
+  for ( i = 0; i < spinLimit; ++i ){
+    if(pthread_mutex_trylock(theLock)==0){
+        // printf("thread[%i],spin[%lu]\n", tid, i);
+        return i;
     }
-    // printf("thread[%i] sleep here.\n", tid);
-    pthread_mutex_lock(theLock);
+  }
+  pthread_mutex_lock(theLock);
+  return i;
 }
 
 class Worker {
@@ -89,15 +115,17 @@ private:
   static atomic_llong nReqsTotal;
   static long maxReqs;
   static atomic_llong correct;
-  int spinLimit;
-  int nonblock_length, block_length;
+  uint64_t spinLimit;
+  int nBlockT, blockT;
+  int noiseT; // disturbance time
+
+  int sleepTime, sleepProb;
+
   std::uniform_int_distribution<int> uDist;
-  
-  long startReq() {
-    ++nReqs;
-    return ++nReqsTotal;
-  }
-  
+  std::uniform_int_distribution<int> noiseDist;
+  std::uniform_int_distribution<int> sleepDist;
+  // std::exponential_distribution<double> nBlockDist;
+   
   static void* run(void* ptr) {
     Worker* worker = reinterpret_cast<Worker*>(ptr);
     worker->doRun();
@@ -111,67 +139,83 @@ private:
     char* request;
     
     //get system clock frequency, should be 54MHz on rasp pi
-    uint64_t virt_freq;
-    asm volatile("mrs %0, cntfrq_el0" : "=r"(virt_freq));
-    
+    uint64_t virt_freq = GetFrequency();
+
     int lockIdx;
-    // while (++nReqsTotal <= maxReqs) {
-    uint64_t nextNs = getCurNs();
-    int nonBlockT = virt_freq/nonblock_length;
-    int blockT = virt_freq/block_length;
-    printf("base freq: %lu, blockcing cycle is: %i, nonblocking cycle is: %i\n", virt_freq, blockT, nonBlockT);
-    printf("uniform dist bound [%i, %i]\n", uDist.min(),uDist.max());
-    int t_start, t_end;
+    int nBlockAve = virt_freq/(1e+6/nBlockT);
+    int blockAve = virt_freq/(1e+6/blockT);
+    int noiseAve = virt_freq/(1e+6/noiseT);
+    // int sleepAve = virt_freq/(1e+6/sleepTime);
+
+    std::normal_distribution<double> nBlockDist(nBlockAve,nBlockAve/100);
+    std::normal_distribution<double> blockDist(blockAve,blockAve/100);
+    std::normal_distribution<double> noiseLengthDist(noiseAve,noiseAve/100);
+    std::normal_distribution<double> sleepLengthDist(sleepTime,sleepTime/100);
+
+
+    printf("base freq: %lu, nonblockcing cycle is: %i, time: %i us, blocking cycle is: %i, time: %i us, noise cycles is: %i, time: %i us, range[%i,%i].\n", virt_freq,nBlockAve, nBlockT, blockAve, blockT, noiseAve, noiseT, noiseDist.min(),noiseDist.max());
+    printf("nBlockDist pinter : %p \n", &nBlockDist);
+    if(tid!=0){
+        printf("uniform dist bound [%i, %i]\n", uDist.min(),uDist.max());
+    }
+
+    int t_start, t_end, nBlockCycle, blockCycle, noiseCycle;
+    
     while (true) {
-      ++nReqs;
-      
-      size_t len = tBenchRecvReq(reinterpret_cast<void**>(&request));
-      // cout<<"recv one req here"<<endl;
-      
-      if(tid==0){
-	t_start=GetCurrentClockCycle();
-	t_end=GetCurrentClockCycle();
-	while(!((t_end-t_start)/nonBlockT)){
-	  t_end=GetCurrentClockCycle();
-	}
-	hybridLock(&microLock[0], spinLimit, tid);
-	// t = eDist(random_g);
-	t_start=GetCurrentClockCycle();
-	//t_end=GetCurrentClockCycle();
-	while(!((t_end-t_start)/blockT)){
-	  t_end=GetCurrentClockCycle();
-	}
-	pthread_mutex_unlock(&microLock[0]);
-      } else {
-	t_start=GetCurrentClockCycle();
-	t_end=GetCurrentClockCycle();
-	while(!((t_end-t_start)/nonBlockT)){
-	  t_end=GetCurrentClockCycle();
-	}
-	lockIdx = uDist(rd);
-	//printf("locking id[%i]\n",lockIdx);
-	hybridLock(&microLock[lockIdx], spinLimit, tid);
-	// t = eDist(random_g);
-	t_start=GetCurrentClockCycle();
-	//t_end=GetCurrentClockCycle();
-	while(!((t_end-t_start)/blockT)){
-	  t_end=GetCurrentClockCycle();
-	}
-	pthread_mutex_unlock(&microLock[lockIdx]);
-      }
-      
-      tBenchSendResp(reinterpret_cast<const void*>(&nReqs), sizeof(nReqs));
+        ++nReqs;
+        size_t len = tBenchRecvReq(reinterpret_cast<void**>(&request));
+        uint64_t cnt; 
+        
+        //some non critical work before the lock
+        t_start=GetCurrentClockCycle();
+        t_end=GetCurrentClockCycle();
+        nBlockCycle = nBlockDist(random_g);
+
+        while(!((t_end-t_start)/nBlockCycle)){
+            t_end=GetCurrentClockCycle();
+        }
+
+        //randomized change to add noise disturbance
+        if(!sleepDist(rd)){
+            int sleepNs = sleepLengthDist(random_g);
+            struct timespec ts = {(time_t)(0), (time_t)(sleepNs)};
+            nanosleep(&ts, NULL); //not guaranteed, hence the loop
+        }
+
+        //Then, for critical section, grabing different locks
+        lockIdx = uDist(rd);
+        // lockIdx = tid;
+        cnt = hybridLock(&microLock[lockIdx], spinLimit, tid);
+        blockCycle = blockDist(random_g);
+        //randomized change to add noise disturbance
+        if(!noiseDist(rd)){
+            blockCycle += noiseLengthDist(random_g);
+        }
+
+        t_start=GetCurrentClockCycle();
+        t_end=GetCurrentClockCycle();
+        while(!((t_end-t_start)/blockCycle)){
+            t_end=GetCurrentClockCycle();
+        }
+        pthread_mutex_unlock(&microLock[lockIdx]);
+        // }
+        // printf("return spin time: %li\n", cnt);
+        tBenchSendResp(reinterpret_cast<const void*>(&cnt), sizeof(cnt));
     }
   }
   
 public:
-  Worker(int tid, int blockT, int nBlockT, int idxLow, int idxHigh)
+  Worker(int tid, int blockT, int nBlockT, int idxLow, int idxHigh, int spinMax, int noiseT, int noiseP, int sleepT, int sleepL, int sleepP)
     : tid(tid) 
     , nReqs(0)
-    , spinLimit(1000000000)
-    , block_length(blockT)
-    , nonblock_length(nBlockT)
+    , spinLimit(spinMax)
+    , blockT(blockT)
+    , nBlockT(nBlockT)
     , uDist(idxLow,idxHigh)
+    , noiseT(noiseT)
+    , noiseDist(1,1)
+    , sleepTime(sleepT)
+    , sleepDist(sleepL,sleepP)
   { }
   
   void run() {
@@ -222,19 +266,26 @@ main(int argc, char** argv)
       printHelp(argv);
       return 0;
       break;
-      //case 'b':
-      //  blockT = atoi(optarg) * 1e+6;
-      //  break;
-      //case 'n':
-      //nBlockT = atoi(optarg);
-      //break;
     case '?':
       printHelp(argv);
       return -1;
       break;
     }
   }
-  
+
+  int sleepT = getOpt<double>("SLEEP_TIME", 1000.0) * 1e+3;
+  int sleepP = getOpt<int>("SLEEP_UPBOUND", 0);
+  int sleepL = getOpt<int>("SLEEP_LOWBOUND", 0);
+  printf("Sleeping time: %i us, Dist Range:%i-%i.\n", sleepT/1000, sleepL, sleepP);
+
+  int noiseT = getOpt<double>("NOISE_TIME", 1000.0);
+  int noiseP = getOpt<int>("NOISE_BOUND", 0);
+
+  int lockT = getOpt<double>("LOCK_TIME", 1000.0);
+  int lockP = getOpt<int>("LOCK_BOUND", 0);
+
+  int spin  = getOpt<int>("SPIN_LIMIT", 0);
+
   long start, end;
   start = clock();
   
@@ -242,7 +293,7 @@ main(int argc, char** argv)
   // Worker::updateMaxReqs(maxReqs);
   vector<Worker> workers;
   for (int t = 0; t < nThreads; ++t) {
-    workers.push_back(Worker(t, blockT, nBlockT, low, high));
+    workers.push_back(Worker(t, blockT, nBlockT, low, high, spin, noiseT, noiseP, sleepT, sleepL, sleepP));
   }
   
   for (int t = 0; t < nThreads; ++t) {

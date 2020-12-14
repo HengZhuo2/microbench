@@ -52,15 +52,6 @@ static uint64_t getCurNs() {
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);
     uint64_t t = ts.tv_sec*1000*1000*1000 + ts.tv_nsec;
-
-    // uint64_t t1 = ts.tv_sec*1000*1000*1000;
-    // uint64_t t2 = ts.tv_nsec;
-    // uint64_t t  = t1 + t2;
-    
-    // std::cout <<ts.tv_sec<<" become: "<< t1 <<"+"<<t2<<", getCurNs calculated:" << t << std::\
-endl;
-
-
     return t;
 }
 
@@ -83,7 +74,7 @@ static int sendfull(int fd, const char* msg, int len, int flags) {
     while (remaining > 0) {
         sent = send(fd, reinterpret_cast<const void*>(cur), remaining, flags);
         if (sent == -1) {
-	  std::cerr << "send() failed: " << strerror(errno)<<",with len:"<< len << ",left:"<<remaining <<std::endl;
+            std::cerr << "send() failed: " << strerror(errno)<<",with len:"<< len << ",left:"<<remaining <<std::endl;
             break;
         }
         cur += sent;
@@ -98,12 +89,9 @@ static int recvfull(int fd, char* msg, int len, int flags) {
     char* cur = msg;
     int recvd;
     //std::cout << "here in helpers.h: recvfull" << std::endl;
-    uint64_t curNs1,curNs2;
+
     while (remaining > 0) {
-        curNs1 = getCurNs();
         recvd = recv(fd, reinterpret_cast<void*>(cur), remaining, flags);
-        curNs2 = getCurNs();
-        printf("recvfull before time: %u\n",curNs2-curNs1);
         if ((recvd == -1) || (recvd == 0)) break;
         cur += recvd;
         remaining -= recvd;

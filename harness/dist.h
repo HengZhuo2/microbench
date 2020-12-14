@@ -37,12 +37,10 @@ class ExpDist : public Dist {
     public:
         ExpDist(double lambda, uint64_t seed, uint64_t startNs) 
             : g(seed), d(lambda), curNs(startNs) {
-                inc = 1 / lambda;
             }
 
         uint64_t nextArrivalNs() {
-            // curNs += d(g);
-            curNs += inc;
+            curNs += d(g);
             return curNs;
         }
 };
