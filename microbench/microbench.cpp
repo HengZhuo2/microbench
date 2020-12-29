@@ -154,10 +154,9 @@ private:
 
 
     printf("base freq: %lu, nonblockcing cycle is: %i, time: %i us, blocking cycle is: %i, time: %i us, noise cycles is: %i, time: %i us, range[%i,%i].\n", virt_freq,nBlockAve, nBlockT, blockAve, blockT, noiseAve, noiseT, noiseDist.min(),noiseDist.max());
-    printf("nBlockDist pinter : %p \n", &nBlockDist);
-    if(tid!=0){
-        printf("uniform dist bound [%i, %i]\n", uDist.min(),uDist.max());
-    }
+    printf("spinLimit: %i \n", spinLimit);
+    printf("uniform dist bound [%i, %i]\n", uDist.min(),uDist.max());
+    
 
     int t_start, t_end, nBlockCycle, blockCycle, noiseCycle;
     
@@ -184,23 +183,38 @@ private:
 
         //Then, for critical section, grabing different locks
         lockIdx = uDist(rd);
-        // lockIdx = tid;
+        //lockIdx = tid;
         cnt = hybridLock(&microLock[lockIdx], spinLimit, tid);
-        blockCycle = blockDist(random_g);
-        //randomized change to add noise disturbance
-        if(!noiseDist(rd)){
-            blockCycle += noiseLengthDist(random_g);
-        }
 
+	blockCycle = blockDist(random_g);
         t_start=GetCurrentClockCycle();
         t_end=GetCurrentClockCycle();
         while(!((t_end-t_start)/blockCycle)){
             t_end=GetCurrentClockCycle();
         }
-        pthread_mutex_unlock(&microLock[lockIdx]);
-        // }
-        // printf("return spin time: %li\n", cnt);
-        tBenchSendResp(reinterpret_cast<const void*>(&cnt), sizeof(cnt));
+
+	//blockCycle = blockDist(random_g);
+	
+	if(!noiseDist(rd)){
+	  noiseCycle = noiseLengthDist(random_g);
+	}else{
+	  noiseCycle = 1;
+	}
+
+	//printf("noise: %u.\n",noiseCycle);
+	
+	t_start=GetCurrentClockCycle();
+	t_end=GetCurrentClockCycle();
+	asm volatile("nop");
+	while(!((t_end-t_start)/noiseCycle)){
+	  t_end=GetCurrentClockCycle();
+	  //printf("%u, %u \n",t_start,t_end);
+	}
+	asm volatile("nop");
+	
+	pthread_mutex_unlock(&microLock[lockIdx]);
+        
+	tBenchSendResp(reinterpret_cast<const void*>(&cnt), sizeof(cnt));
     }
   }
   
@@ -213,7 +227,7 @@ public:
     , nBlockT(nBlockT)
     , uDist(idxLow,idxHigh)
     , noiseT(noiseT)
-    , noiseDist(1,1)
+    , noiseDist(0,noiseP)
     , sleepTime(sleepT)
     , sleepDist(sleepL,sleepP)
   { }
