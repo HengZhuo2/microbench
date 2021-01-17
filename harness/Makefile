@@ -4,7 +4,13 @@ include ../Makefile.config
 CXX = g++
 CXXFLAGS = -O3 -g -fPIC -std=c++0x
 COMMON_INCLUDES = dist.h helpers.h msgs.h
+MACHINE = $(shell uname -m) 
+
+ifeq ($(MACHINE), aarch64)
+JDK_PATH = /usr/lib/jvm/java-1.11.0-openjdk-arm64
+else
 JDK_PATH = /usr/lib/jvm/java-1.11.0-openjdk-amd64
+endif
 
 default: client.o tbench_server_integrated.o tbench_server_networked.o \
 	tbench_client_networked.o tbench.jar
