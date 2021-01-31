@@ -88,20 +88,28 @@ static inline uint64_t GetFrequency() {
 #endif
 }
 
-pthread_mutex_t microLock[20];
+pthread_mutex_t microLock[5];
+bool underNoise[5] = {false};
 // std::exponential_distribution<double> eDist(1 * 1e-9);
 //std::uniform_int_distribution<int> nDist{0,1}; 
 std::random_device rd;
 std::default_random_engine random_g(rd());
 
-uint64_t hybridLock(pthread_mutex_t *theLock, uint64_t spinLimit, int tid) {
+uint64_t hybridLock(pthread_mutex_t *theLock, uint64_t spinLimit, int lockId) {
   uint64_t i;
-  for ( i = 0; i < spinLimit; ++i ){
+  // printf("start: lockId[%i],spin[%lu]\n", lockId, i);
+  for ( i=0;i < spinLimit; ){
     if(pthread_mutex_trylock(theLock)==0){
-        // printf("thread[%i],spin[%lu]\n", tid, i);
+        // printf("thread[%i],spin[%lu]\n", lockId, i);
         return i;
     }
+    if(!underNoise[lockId]){
+      i++;
+    }else{
+      // printf("time freezing: lock[%i],spin[%lu]\n", lockId, i);
+    }
   }
+  // printf("end: lockId[%i],spin[%lu]\n", lockId, i);
   pthread_mutex_lock(theLock);
   return i;
 }
@@ -122,7 +130,7 @@ private:
   int noiseT, noiseP, noiseAmp; 
 
   int sleepTime, sleepP;
-
+  bool timeFreeze;
   std::uniform_int_distribution<int> uDist;
   // std::uniform_int_distribution<int> sleepDist;
   // std::exponential_distribution<double> nBlockDist;
@@ -152,8 +160,8 @@ private:
     std::normal_distribution<double> blockDist(blockAve,blockAve/100);
     std::normal_distribution<double> noiseLengthDist(noiseAve,noiseAve/100);
     std::normal_distribution<double> sleepLengthDist(sleepTime,sleepTime/100);
-    std::uniform_int_distribution<int> noiseDist(0, 99);
-    std::uniform_int_distribution<int> sleepDist(0, 99);
+    std::uniform_int_distribution<int> noiseDist(0, 999);
+    std::uniform_int_distribution<int> sleepDist(0, 999);
 
 
     printf("base freq: %lu, nonblockcing cycle is: %i, time: %i us, blocking cycle is: %i, time: %i us, noise cycles is: %i, time: %i us, range[%i,%i].\n", virt_freq,nBlockAve, nBlockT, blockAve, blockT, noiseAve, noiseT, noiseDist.min(),noiseDist.max());
@@ -187,7 +195,7 @@ private:
       //Then, for critical section, grabing different locks
       lockIdx = uDist(rd);
       //lockIdx = tid;
-      cnt = hybridLock(&microLock[lockIdx], spinLimit, tid);
+      cnt = hybridLock(&microLock[lockIdx], spinLimit, lockIdx);
 
       blockCycle = blockDist(random_g);
       t_start=GetCurrentClockCycle();
@@ -212,12 +220,13 @@ private:
       t_start=GetCurrentClockCycle();
       t_end=GetCurrentClockCycle();
       asm volatile("nop");
+      underNoise[lockIdx] = timeFreeze;
       while(!((t_end-t_start)/noiseCycle)){
         t_end=GetCurrentClockCycle();
         //printf("%u, %u \n",t_start,t_end);
       }
       asm volatile("nop");
-      
+      underNoise[lockIdx] = false;
       pthread_mutex_unlock(&microLock[lockIdx]);
             
       tBenchSendResp(reinterpret_cast<const void*>(&cnt), sizeof(cnt));
@@ -225,7 +234,7 @@ private:
   }
   
 public:
-  Worker(int tid, int blockT, int nBlockT, int idxLow, int idxHigh, int spinMax, int sleepT, int sleepP, int noiseT, int noiseP, int noiseA)
+  Worker(int tid, int blockT, int nBlockT, int idxLow, int idxHigh, int spinMax, int sleepT, int sleepP, int noiseT, int noiseP, int noiseA, bool timeFreeze)
     : tid(tid) 
     , nReqs(0)
     , spinLimit(spinMax)
@@ -237,6 +246,7 @@ public:
     , sleepTime(sleepT)
     , sleepP(sleepP)
     , noiseAmp(noiseA)
+    , timeFreeze(timeFreeze)
   { }
   
   void run() {
@@ -300,6 +310,8 @@ main(int argc, char** argv)
   int lockIdx0 = getOpt<int>("LOCKID_LOW", 0);
   int lockIdx1 = getOpt<int>("LOCKID_HIGH", 0);
 
+  bool timeFreeze = getOpt<bool>("TIME_FREEZE", 0);
+
   long start, end;
   start = clock();
   
@@ -307,7 +319,7 @@ main(int argc, char** argv)
   // Worker::updateMaxReqs(maxReqs);
   vector<Worker> workers;
   for (int t = 0; t < nThreads; ++t) {
-    workers.push_back(Worker(t, blockT, nBlockT, lockIdx0, lockIdx1, spinL, sleepT, sleepP, noiseT, noiseP, noiseA));
+    workers.push_back(Worker(t, blockT, nBlockT, lockIdx0, lockIdx1, spinL, sleepT, sleepP, noiseT, noiseP, noiseA, timeFreeze));
   }
   
   for (int t = 0; t < nThreads; ++t) {
