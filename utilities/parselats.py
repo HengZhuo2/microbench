@@ -55,6 +55,8 @@ if __name__ == '__main__':
         meanSpin = stats.tmean(spinTimes)
         spin95 = stats.scoreatpercentile(spinTimes, 95)
         spin99 = stats.scoreatpercentile(spinTimes, 99)
+        spin0 = stats.percentileofscore(spinTimes, 0, kind="weak")
+        spinMax = stats.percentileofscore(spinTimes, 200, kind="strict")
         # maxLat = max(sjrnTimes)
 
         svcmean = stats.tmean(svcTimes)
@@ -66,8 +68,8 @@ if __name__ == '__main__':
         # print ("round mean: %.3f ms | 95th: %.3f ms | 99th: %.3f ms | service mean: %.3f ms | 95th: %.3f ms | 99th: %.3f ms | spin mean: %.3f cycles" \
         #         % (meanLat,p95, p99, svcmean, svc95th, svc99th, meanSpin))
         
-        print ("round mean: %.3f ms | 95th: %.3f ms | 99th: %.3f ms | service mean: %.3f ms | 95th: %.3f ms | 99th: %.3f ms | spin mean: %.3f cycles | 95th: %.3f cycles | 99th: %.3f cycles" \
-                % (meanLat,p95, p99, svcmean, svc95th, svc99th, meanSpin, spin95, spin99))
+        print ("round mean: %.3f ms | 95th: %.3f ms | 99th: %.3f ms | service mean: %.3f ms | 95th: %.3f ms | 99th: %.3f ms | spin mean: %.3f cycles | 0 : %.3f | max : %.3f " \
+                % (meanLat,p95, p99, svcmean, svc95th, svc99th, meanSpin, spin0, spinMax))
         # print ("%.3f %.3f %.3f %.3f" \
         #         % (meanLat, p95, p99, maxLat))
         

@@ -88,8 +88,8 @@ static inline uint64_t GetFrequency() {
 #endif
 }
 
-pthread_mutex_t microLock[5];
-bool underNoise[5] = {false};
+pthread_mutex_t microLock[9];
+bool underNoise[9] = {false};
 // std::exponential_distribution<double> eDist(1 * 1e-9);
 //std::uniform_int_distribution<int> nDist{0,1}; 
 std::random_device rd;
@@ -125,10 +125,10 @@ private:
   static atomic_llong correct;
   uint64_t spinLimit;
   int nBlockT, blockT;
-
+  int blockVar, nBlockVar, noiseVar;
   // disturbance time, noiseAmp controls how much higher chance
-  int noiseT, noiseP, noiseAmp; 
-
+  int noiseT, noiseAmp; 
+  int noiseP;
   int sleepTime, sleepP;
   bool timeFreeze;
   std::uniform_int_distribution<int> uDist;
@@ -151,25 +151,26 @@ private:
     uint64_t virt_freq = GetFrequency();
 
     int lockIdx;
-    int nBlockAve = virt_freq/(1e+6/nBlockT);
-    int blockAve = virt_freq/(1e+6/blockT);
-    int noiseAve = virt_freq/(1e+6/noiseT);
+    double nBlockAve = virt_freq*nBlockT/1e+6;
+    double blockAve = virt_freq*blockT/1e+6;
+    double noiseAve = virt_freq*noiseT/1e+6;
     // int sleepAve = virt_freq/(1e+6/sleepTime);
 
-    std::normal_distribution<double> nBlockDist(nBlockAve,nBlockAve/100);
-    std::normal_distribution<double> blockDist(blockAve,blockAve/100);
-    std::normal_distribution<double> noiseLengthDist(noiseAve,noiseAve/100);
+    std::normal_distribution<double> nBlockDist(nBlockAve,nBlockAve/nBlockVar);
+    std::normal_distribution<double> blockDist(blockAve,blockAve/blockVar);
+    std::normal_distribution<double> noiseLengthDist(noiseAve,noiseAve/noiseVar);
     std::normal_distribution<double> sleepLengthDist(sleepTime,sleepTime/100);
     std::uniform_int_distribution<int> noiseDist(0, 999);
     std::uniform_int_distribution<int> sleepDist(0, 999);
 
 
-    printf("base freq: %lu, nonblockcing cycle is: %i, time: %i us, blocking cycle is: %i, time: %i us, noise cycles is: %i, time: %i us, range[%i,%i].\n", virt_freq,nBlockAve, nBlockT, blockAve, blockT, noiseAve, noiseT, noiseDist.min(),noiseDist.max());
-    printf("spinLimit: %i \n", spinLimit);
+    printf("nonblock time: %i us, var: %i, blocktime: %i us, var: %i, noise time: %i us, var: %i.\n", nBlockT, nBlockT/nBlockVar, blockT, blockT/blockVar, noiseT, noiseT/noiseVar);
+    printf("base freq: %lu, nonblockcing cycle is: %f, blocking cycle is: %f, noise cycles is: %f, noise p: %i.\n", virt_freq, nBlockAve, blockAve, noiseAve, noiseP);
+    printf("spinLimit: %li \n", spinLimit);
     printf("uniform dist bound [%i, %i]\n", uDist.min(),uDist.max());
     
-
-    int t_start, t_end, nBlockCycle, blockCycle, noiseCycle;
+    long long  nBlockCycle, blockCycle, noiseCycle;
+    long long t_start, t_end;
     
     while (true) {
       ++nReqs;
@@ -179,7 +180,8 @@ private:
       //some non critical work before the lock
       t_start=GetCurrentClockCycle();
       t_end=GetCurrentClockCycle();
-      nBlockCycle = nBlockDist(random_g);
+      nBlockCycle = std::llround(nBlockDist(random_g));
+      // printf("nBlockCycle: %lld.\n",nBlockCycle);
 
       while(!((t_end-t_start)/nBlockCycle)){
           t_end=GetCurrentClockCycle();
@@ -189,6 +191,7 @@ private:
       if(sleepDist(rd) < sleepP){
           int sleepNs = sleepLengthDist(random_g);
           struct timespec ts = {(time_t)(0), (time_t)(sleepNs)};
+          // printf("push myself to sleep.");
           nanosleep(&ts, NULL); //not guaranteed, hence the loop
       }
 
@@ -197,7 +200,10 @@ private:
       //lockIdx = tid;
       cnt = hybridLock(&microLock[lockIdx], spinLimit, lockIdx);
 
-      blockCycle = blockDist(random_g);
+      blockCycle = std::llround(blockDist(random_g));
+
+      // printf("BlockCycle: %lld.\n",blockCycle);
+
       t_start=GetCurrentClockCycle();
       t_end=GetCurrentClockCycle();
       while(!((t_end-t_start)/blockCycle)){
@@ -234,15 +240,18 @@ private:
   }
   
 public:
-  Worker(int tid, int blockT, int nBlockT, int idxLow, int idxHigh, int spinMax, int sleepT, int sleepP, int noiseT, int noiseP, int noiseA, bool timeFreeze)
+  Worker(int tid, int blockT, int blockVar, int nBlockT, int nBlockVar, int idxLow, int idxHigh, int spinMax, int sleepT, int sleepP, int noiseT, double noiseP, int noiseVar, int noiseA, bool timeFreeze)
     : tid(tid) 
     , nReqs(0)
     , spinLimit(spinMax)
     , blockT(blockT)
+    , blockVar(blockVar)
     , nBlockT(nBlockT)
+    , nBlockVar(nBlockVar)
     , uDist(idxLow,idxHigh)
     , noiseT(noiseT)
     , noiseP(noiseP)
+    , noiseVar(noiseVar)
     , sleepTime(sleepT)
     , sleepP(sleepP)
     , noiseAmp(noiseA)
@@ -297,12 +306,16 @@ main(int argc, char** argv)
 
   int noiseT = getOpt<int>("NOISE_TIME", 1000);
   int noiseP = getOpt<int>("NOISE_PROB", 0);
+  int noiseV = getOpt<int>("NOISE_VAR", 0);
   int noiseA = getOpt<int>("NOISE_AMP", 0);
-  printf("noise time: %i us, Prob:%i, Amp: %i.\n", noiseT, noiseP, noiseA);
+  double noiseMod = getOpt<double>("TBENCH_QPS_ROI", 0) / 160 ;
+  printf("noise time: %i us, Prob:%i.\n", noiseT, noiseP);
 
   int blockT = getOpt<int>("BLOCK_TIME", 1000);
+  int blockV = getOpt<int>("BLOCK_VAR", 100);
   int nBlockT = getOpt<int>("NONBLOCK_TIME", 1000);
-  
+  int nBlockV = getOpt<int>("NONBLOCK_VAR", 100);
+
   printf("lock time: %i us, non block time:%i.\n", blockT, nBlockT);
 
   int spinL  = getOpt<int>("SPIN_LIMIT", 0);
@@ -319,7 +332,7 @@ main(int argc, char** argv)
   // Worker::updateMaxReqs(maxReqs);
   vector<Worker> workers;
   for (int t = 0; t < nThreads; ++t) {
-    workers.push_back(Worker(t, blockT, nBlockT, lockIdx0, lockIdx1, spinL, sleepT, sleepP, noiseT, noiseP, noiseA, timeFreeze));
+    workers.push_back(Worker(t, blockT, blockV, nBlockT, nBlockV, lockIdx0, lockIdx1, spinL, sleepT, sleepP, noiseT, noiseP, noiseV, noiseA, timeFreeze));
   }
   
   for (int t = 0; t < nThreads; ++t) {

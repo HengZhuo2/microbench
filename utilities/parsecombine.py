@@ -7,6 +7,7 @@ import functools
 from scipy import stats
 from os import listdir
 from os.path import isfile, join
+from scipy.stats.mstats import trim
 np.set_printoptions(suppress=True,linewidth=150)
 
 class MultLat(object):
@@ -41,7 +42,8 @@ class MultLat(object):
     def parseSpinTimes(self):
         return self.reqTimes[:, 3]
 
-def getMultLatPct(latsFolder):
+def getMultLatPct(latsFolder, spinN):
+    # print(latsFolder)
     assert os.path.exists(latsFolder)
 
     latsObj = MultLat(latsFolder)
@@ -66,38 +68,66 @@ def getMultLatPct(latsFolder):
     svc99 = stats.scoreatpercentile(svcTimes, 99)
     svcMean = stats.tmean(svcTimes)
     maxLat = max(sjrnTimes)
-    meanSpin = stats.tmean(spinTimes)
-    spin95 = stats.scoreatpercentile(spinTimes, 95)
-    spin99 = stats.scoreatpercentile(spinTimes, 99)
-    maxSpinP = stats.percentileofscore(spinTimes, 5000.0)
+    try:
+        meanSpin = stats.tmean(spinTimes, limits=(1,int(spinN)-1))
+    except ValueError:
+        print("only 0 and max here.")
+        meanSpin = 0
+    # meanSpin = stats.tmean(trim(spinTimes,(1,int(spinN)-1)))
+    # meanSpin = stats.tmean(spinTimes, limits=(1,int(spinN)-1))
+    spin95 = stats.scoreatpercentile(spinTimes, 95, limit=(1,int(spinN)-1))
+    spin99 = stats.scoreatpercentile(spinTimes, 99, limit=(1,int(spinN)-1))
+    maxSpinP = stats.percentileofscore(spinTimes, int(spinN))
+    spin0 = stats.percentileofscore(spinTimes, 0, kind="weak")
+    spinMax = stats.percentileofscore(spinTimes, int(spinN), kind="strict")
     # print('mean: {:.3f} ms | 95th: {:.3f} ms | 99th: {:.3f} ms; svc mean: {:.3f} ms | 95th: {:.3f} ms | 99th: {:.3f} ms'.format(meanLat, p95, p99, svcMean, svc95, svc99))
-    return np.asarray([meanLat,p95,p99,svcMean, svc95, svc99, maxSpinP])
+    # print ("round mean: %.3f ms | 95th: %.3f ms | 99th: %.3f ms | service mean: %.3f ms | 95th: %.3f ms | 99th: %.3f ms | spin mean: %.3f cycles | %% at 0: %.3f | %% at max : %.3f | %% between: %.3f " \
+    #             % (meanLat,p95, p99, svcMean, svc95, svc99, meanSpin, spin0, spinMax, spinMax-spin0))
+    return np.asarray([meanLat,p95,p99,svcMean, spin95, spin99, meanSpin, spin0, spinMax, spinMax-spin0])
 
-def combineFolder(latsFolder, metric0, metric1, metric2):
-    results = np.empty((7, 7))
+def combineFolder(latsFolder, mode, metric0, metric1,metric2):
+    results = np.empty((6, 10))
     # print("combined matrix:")
     rdx = 0
-    for f in ("1800","2400","3000","3600","4200","4800","5400"):
-        results[rdx]=getMultLatPct(join(latsFolder,f))
+    for f in("1400","1800","2200","2600","3000","3400"):
+        results[rdx]=getMultLatPct(join(latsFolder,f), metric2)
         rdx = rdx + 1
     # for index in range(5):  
     #     print('{} mean: {:.3f} ms | 95th: {:.3f} ms | 99th: {:.3f} ms'.format((index+1)*2, results[index,0], results[index,1], results[index,2]))
     swaped = np.swapaxes(results,0,1)
     # print(repr(results))
     np.set_printoptions(precision=3)
-    print("comdata_10000sleep_2p_10t_"+str(metric0)+"_"+str(metric1)+"p_"+str(metric2)+"="+ np.array2string(swaped[:,:], separator=','))
+    print(str(mode)+"_"+str(metric0)+"_"+str(metric1)+"_"+str(metric2)+"="+ np.array2string(swaped[:,:], separator=','))
 
 
-baseDir = "../hybrid-10000sleep-2p-10t/microbench-"
+baseDir = "../result-base-sweep/microbench-"
 
-theads=10
 botbound=0
 upbound=49
 blockTime=200
 sleepT=10000
-spinlimit=5000
+sleepP=199
+spinLimit=3000
+threads=5
+# for noiseT in ("50",):
+#     for noiseP in ("0","200","1000"):
+#         latsFolder = baseDir+str(noiseT)+"-"+str(noiseP)+"-"+str(spinLimit)
+#         combineFolder(latsFolder,"base",noiseT,noiseP,spinLimit)
 
-for noiseT in ("0",):
-    for noiseP in ("9999",):
-        latsFolder = baseDir+noiseT+"-"+noiseP+"-"+str(spinlimit)
-        combineFolder(latsFolder,noiseT,noiseP,str(spinlimit))
+# baseDir = "../result-tf-sweep/microbench-"
+# for noiseT in ("50",):
+#     for noiseP in ("200","1000"):
+#         latsFolder = baseDir+str(noiseT)+"-"+str(noiseP)+"-"+str(spinLimit)
+#         combineFolder(latsFolder,"tf",noiseT,noiseP,spinLimit)
+
+spinLimit=2800
+for noiseT in ("50",):
+    for noiseP in ("200",):
+        latsFolder = baseDir+str(noiseT)+"-"+str(noiseP)+"-"+str(spinLimit)
+        combineFolder(latsFolder,"base",noiseT,noiseP,spinLimit)
+
+baseDir = "../result-tf-sweep/microbench-"
+for noiseT in ("50",):
+    for noiseP in ("200",):
+        latsFolder = baseDir+str(noiseT)+"-"+str(noiseP)+"-"+str(spinLimit)
+        combineFolder(latsFolder,"tf",noiseT,noiseP,spinLimit)
