@@ -64,3 +64,7 @@ hs_err_pid*
 lats.txt
 server.pid
 /hybrid-10000sleep-2p-10t
+harness/tbench_tbench.h
+/result*
+/rasp-data
+lats-*.bin

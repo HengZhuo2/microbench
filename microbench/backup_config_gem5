@@ -1,0 +1,17 @@
+sudo echo "1" > /proc/sys/net/ipv4/tcp_tw_recycle
+sudo echo "1" > /proc/sys/net/ipv4/tcp_tw_reuse
+sudo echo "1" > /proc/sys/net/ipv4/tcp_window_scaling
+sudo echo "0" > /proc/sys/net/ipv4/tcp_timestamps
+sudo echo "0" > /proc/sys/net/ipv4/tcp_sack
+sudo echo "15" > /proc/sys/net/ipv4/tcp_fin_timeout
+sudo echo "16384" > /proc/sys/net/ipv4/tcp_max_syn_backlog
+sudo echo "1024 65535" > /proc/sys/net/ipv4/ip_local_port_range
+sudo echo "5242870 5242870 524287" > /proc/sys/net/ipv4/tcp_rmem
+sudo echo "5242870 5242870 524287" > /proc/sys/net/ipv4/tcp_wmem
+sudo echo "5242870 5242870 524287" > /proc/sys/net/ipv4/tcp_mem
+sudo echo "524287" > /proc/sys/net/core/rmem_max
+sudo echo "524287" > /proc/sys/net/core/wmem_max
+sudo echo "524287" > /proc/sys/net/core/rmem_default
+sudo echo "524287" > /proc/sys/net/core/wmem_default
+sudo echo "524287" > /proc/sys/net/core/optmem_max
+sudo echo "300000" > /proc/sys/net/core/netdev_max_backlog
